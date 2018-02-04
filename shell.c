@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#define MAX_SIZE 50
 /*
  * CS 475 HW1: Shell
  * http://www.jonbell.net/gmu-cs-475-spring-2018/homework-1/
@@ -11,9 +12,9 @@ char** parse_input(char*);
 char* read_input();
 extern int errno;
 
-// testing methods
+int isEOF = 0;
+
 int debug = 1;
-void test_print(char** args);
 
 int main(int argc, char **argv) {
 	/* No error yet */
@@ -34,23 +35,41 @@ int main(int argc, char **argv) {
 		printf("475$");
 		fflush(stdout);
 		input = read_input();
+		// if an EOF is read from input, break out for clean up
+		if(isEOF) break;
 		parsed_args = parse_input(input);
 		//exit = execute_input(parsed_args);
-		
-		// should do some clean up after we are done with it
-		free(input);
-		free(parsed_args);
 	}
+	// clean up after finish
+	free(input);
+	free(parsed_args);
 }
 
 char* read_input(){
-	char* user_input = NULL;
-	size_t buf_len = 0;
-	// let getline does the allocation
-	if(!getline(&user_input,&buf_len,stdin)){
+	int buffer_size = MAX_SIZE;
+	char* user_input = calloc(buffer_size, sizeof(char));	
+	if(!user_input){
 		if(errno) fprintf(stderr, "error: %s\n", strerror(errno));
-		else fprintf(stderr, "error: %s\n", "Failed allocation or unable to read any bytes!");
+		else fprintf(stderr, "error: %s\n", "Failed malloc allocation!");
 	}
+	int index = 0;
+	char c;
+	do{
+		c = getchar();
+		// if EOF (ctrl + d) detected, return buffer for clean up
+		if(c == EOF){
+			isEOF = 1;
+			return user_input;
+		}
+		// if exceed caps, increase limit
+		if(index > buffer_size-1){
+			buffer_size *= 2;
+			user_input = realloc(user_input,buffer_size);			
+		}
+		user_input[index++] = c;
+	}while(c != '\n');
+	// null terminate the string
+	user_input[index] = '\0';
 	return user_input;	
 }
 
@@ -58,13 +77,13 @@ char** parse_input(char* input){
 	// max number of arguments allow + command (127 + 1 = 128)
 	int max_len = 128;
 	int index = 0;
-	char** parsed = malloc(max_len * sizeof(char*));
+	char** parsed = calloc(max_len, sizeof(char*));
 	if(!parsed){
 		if(errno) fprintf(stderr, "error: %s\n", strerror(errno));
 		else fprintf(stderr, "error: %s\n", "Failed malloc allocation!");
 	}
 	// space is the delimiter
-	const char* delim = " ";
+	const char delim[2] = " ";
 	char* token = strtok(input,delim);	
 	while(token != NULL){
 		// any attempt to store would be exceeding the limits
@@ -74,22 +93,6 @@ char** parse_input(char* input){
 		parsed[index++] = token;
 		token = strtok(NULL,delim);		
 	}
-	// shrink the space alloted if #args is less
-	if(index < max_len){
-		parsed = realloc(parsed,index);
-		if(!parsed){
-			if(errno) fprintf(stderr, "error: %s\n", strerror(errno));
-			else fprintf(stderr, "error: %s\n", "Failed malloc allocation!");
-		}		
-	}
 	return parsed;	
 }
 
-// only for testing!
-void test_print(char** args){
-	char* temp = *args;
-	while(*temp != '\0'){
-		printf("%c",(*temp++));	
-		fflush(stdout);
-	}
-}
