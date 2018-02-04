@@ -30,3 +30,11 @@
 
 # Debug files
 *.dSYM/
+
+inputs/
+
+outputs/
+
+README
+
+*.py
