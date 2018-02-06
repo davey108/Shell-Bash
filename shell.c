@@ -18,7 +18,7 @@ char* read_input();
 char*** write_history(char***, char**,int*, int*);
 extern int errno;
 
-extern int isEOF;
+int isEOF;
 int debug = 1;
 
 int main(int argc, char **argv) {
@@ -37,14 +37,15 @@ int main(int argc, char **argv) {
 	 * arr_strings:  [ each element | points to | a string (char array) |....]
 	 *                                    v -> each element points to its own arr_char
 	 * char_array:    [ each | element | is | a | char|...]*/
-	int hist_length = HISTORY_SIZE
+	 
+	/* Initialize history length to its max size which might change*/
+	int hist_length = HISTORY_SIZE;
 	char*** history_data = calloc(hist_length, sizeof(char**));
 	if(!history_data){
 		fprintf(stderr, "error: %s\n", strerror(errno));
 	}
-	int hist_element = 0;
-	/* Initialize history length to its max size which might change*/
-	int hist_index = HISTORY_SIZE;
+	
+	int hist_index = 0;
 	/* store the user input */
 	char* input;
 	int exit = 0; // will only return 1 when exit is entered or EOF
@@ -57,7 +58,7 @@ int main(int argc, char **argv) {
 		// if an EOF is read from input, break out for clean up
 		if(isEOF) break;
 		parsed_args = parse_input(input);
-		history_data = history_write(history_data,parsed_args,hist_index,&hist_length);
+		history_data = write_history(history_data,parsed_args,&hist_index,&hist_length);
 		exit = execute_input(parsed_args);
 		
 		// clean up after finish w/ each input (space for next one)
@@ -136,13 +137,12 @@ char** parse_input(char* input){
 	 
 int execute_input(char** args){
 	int status;
-	char* first_arg = args[0];
 	char* special_command[3];
 	// list of special command
 	special_command[0] = "exit";
 	special_command[1] = "cd";
 	special_command[2] = "history";
-	int pid;
+	int pid = fork();
 	if(pid > 0){
 		fprintf(stderr, "error: %s\n", strerror(errno));
 	}
@@ -163,8 +163,8 @@ int execute_input(char** args){
 	
 }
 /* Write to history and return the location where history array points to in memory*/
-char*** write_history(char**** hist, char** args,int* latest_index, int* history_length){
-	char*** history = *hist;
+char*** write_history(char*** hist, char** args,int* latest_index, int* history_length){
+	char*** history = hist;
 	int index = *latest_index;
 	int hist_len = *history_length;
 	// if the index is exceeding bound, expand the array
