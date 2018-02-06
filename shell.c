@@ -12,10 +12,11 @@
  * CS 475 HW1: Shell
  * http://www.jonbell.net/gmu-cs-475-spring-2018/homework-1/
  */
-int execute_input(char**);
+void execute_input(char**,int*);
 char** parse_input(char*);
 char* read_input();
 char*** write_history(char***, char**,int*, int*);
+void clean_history(char***,int);
 extern int errno;
 
 int isEOF;
@@ -56,15 +57,17 @@ int main(int argc, char **argv) {
 		fflush(stdout);
 		input = read_input();
 		// if an EOF is read from input, break out for clean up
-		if(isEOF) break;
+		if(isEOF){
+			break;
+		}
 		parsed_args = parse_input(input);
 		history_data = write_history(history_data,parsed_args,&hist_index,&hist_length);
-		exit = execute_input(parsed_args);
-		
+		execute_input(parsed_args,&exit);
 		// clean up after finish w/ each input (space for next one)
 		free(input);
 		free(parsed_args);
-	}	
+	}
+    clean_history(history_data,hist_index);	
 }
 
 char* read_input(){
@@ -135,7 +138,7 @@ char** parse_input(char* input){
  *		wait(&status) // wait for child to finish
  */ 
 	 
-int execute_input(char** args){
+void execute_input(char** args, int* exit_flag){
 	int status;
 	char* special_command[3];
 	// list of special command
@@ -152,15 +155,15 @@ int execute_input(char** args){
 			execvp(args[0],args);
 		// do built in (exit, cd, history)
 		else{
+			// if exit, returns 0
+			if(strcmp(args[0],special_command[0]) == 0)
+				*exit_flag = 1;
 			
 		}
 	}
 	else{
 		wait(&status);
-	}
-	// not sure if this is right
-	return status;
-	
+	}	
 }
 /* Write to history and return the location where history array points to in memory*/
 char*** write_history(char*** hist, char** args,int* latest_index, int* history_length){
@@ -195,6 +198,25 @@ char*** write_history(char*** hist, char** args,int* latest_index, int* history_
 	index++;
 	*latest_index = index;
 	return history;	
+}
+
+/* Free up the history array
+ * for every array of string in history
+ *    for every string in array of string
+          free(string)
+	  free(array of string)
+ * return
+ */
+void clean_history(char*** history,int length){
+	int i,j;
+	int string_array_len = 128;
+	for(i = 0; i < length; i++){
+		for(j = 0; j < string_array_len; j++)
+			free(history[i][j]);
+		free(history[i]);
+	}
+	free(history);
+	return;
 }
 
 
