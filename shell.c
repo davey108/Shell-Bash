@@ -2,6 +2,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+
 #define MAX_SIZE 50
 #define HISTORY_SIZE 1024
 /*
@@ -11,6 +15,7 @@
 int execute_input(char**);
 char** parse_input(char*);
 char* read_input();
+char*** write_history(char***, char**,int*, int*);
 extern int errno;
 
 extern int isEOF;
@@ -32,9 +37,14 @@ int main(int argc, char **argv) {
 	 * arr_strings:  [ each element | points to | a string (char array) |....]
 	 *                                    v -> each element points to its own arr_char
 	 * char_array:    [ each | element | is | a | char|...]*/
-	char*** history_data;
+	int hist_length = HISTORY_SIZE
+	char*** history_data = calloc(hist_length, sizeof(char**));
+	if(!history_data){
+		fprintf(stderr, "error: %s\n", strerror(errno));
+	}
+	int hist_element = 0;
 	/* Initialize history length to its max size which might change*/
-	int hist_length = HISTORY_SIZE;
+	int hist_index = HISTORY_SIZE;
 	/* store the user input */
 	char* input;
 	int exit = 0; // will only return 1 when exit is entered or EOF
@@ -47,21 +57,21 @@ int main(int argc, char **argv) {
 		// if an EOF is read from input, break out for clean up
 		if(isEOF) break;
 		parsed_args = parse_input(input);
-		
+		history_data = history_write(history_data,parsed_args,hist_index,&hist_length);
 		exit = execute_input(parsed_args);
-	}
-	// clean up after finish
-	free(input);
-	free(parsed_args);
+		
+		// clean up after finish w/ each input (space for next one)
+		free(input);
+		free(parsed_args);
+	}	
 }
 
 char* read_input(){
 	int buffer_size = MAX_SIZE;
 	char* user_input = calloc(buffer_size, sizeof(char));	
 	if(!user_input){
-		if(errno) fprintf(stderr, "error: %s\n", strerror(errno));
-		else fprintf(stderr, "error: %s\n", "Failed malloc allocation!");
-	}
+		fprintf(stderr, "error: %s\n", strerror(errno));
+	}		
 	int index = 0;
 	char c;
 	do{
@@ -76,8 +86,7 @@ char* read_input(){
 			buffer_size *= 2;
 			user_input = realloc(user_input,buffer_size);	
 			if(!user_input){
-				if(errno) fprintf(stderr, "error: %s\n", strerror(errno));
-				else fprintf(stderr, "error: %s\n", "Failed realloc allocation!");
+				fprintf(stderr, "error: %s\n", strerror(errno));
 			}
 		}
 		user_input[index++] = c;
@@ -88,27 +97,106 @@ char* read_input(){
 }
 
 char** parse_input(char* input){
-	// max number of arguments allow + command (127 + 1 = 128)
-	int max_len = 128;
+	// max number of arguments allow + command (127 + 1 + 1 (for NULL) = 129)
+	int max_len = 129;
 	int index = 0;
 	char** parsed = calloc(max_len, sizeof(char*));
 	if(!parsed){
-		if(errno) fprintf(stderr, "error: %s\n", strerror(errno));
-		else fprintf(stderr, "error: %s\n", "Failed malloc allocation!");
+		fprintf(stderr, "error: %s\n", strerror(errno));
 	}
 	char* token = strtok(input," ");	
 	while(token != NULL){
-		// any attempt to store would be exceeding the limits
-		if(index == max_len-1)
+		// any attempt to store would be exceeding the limits (128)
+		if(index == max_len-2)
 			fprintf(stderr, "error: %s\n", "Too many arguments!");
 		// store the token
 		parsed[index++] = token;
 		token = strtok(NULL," ");		
 	}
+	// fill in that null for exec
+	parsed[index] = NULL;
 	return parsed;	
 }
-
+/* Pseudocode:
+ * parse first argument;
+ * int pid;
+ * pid = fork()
+ * if(pid > 0)
+ *	 print error message
+ * else if (pid == child){
+ * 	 if(first argument != exit and cd and history)
+ *		call execvp on first arg and rest of arg
+ *	 else{
+ *		scan first arg
+ *		call appropriate function on first arg
+ *	 }
+ *  else // implies that pid is parent
+ *		wait(&status) // wait for child to finish
+ */ 
+	 
 int execute_input(char** args){
+	int status;
+	char* first_arg = args[0];
+	char* special_command[3];
+	// list of special command
+	special_command[0] = "exit";
+	special_command[1] = "cd";
+	special_command[2] = "history";
+	int pid;
+	if(pid > 0){
+		fprintf(stderr, "error: %s\n", strerror(errno));
+	}
+	else if (pid == 0){
+		// do non-built in
+		if(strcmp(args[0],special_command[0])!= 0 && strcmp(args[0],special_command[1])!= 0 && strcmp(args[0],special_command[2])!= 0)
+			execvp(args[0],args);
+		// do built in (exit, cd, history)
+		else{
+			
+		}
+	}
+	else{
+		wait(&status);
+	}
+	// not sure if this is right
+	return status;
 	
 }
+/* Write to history and return the location where history array points to in memory*/
+char*** write_history(char**** hist, char** args,int* latest_index, int* history_length){
+	char*** history = *hist;
+	int index = *latest_index;
+	int hist_len = *history_length;
+	// if the index is exceeding bound, expand the array
+	if(*latest_index == *history_length){
+		// increase size cap for length
+		*history_length = hist_len*2;
+		history = realloc(history,*history_length);
+	}
+	int i;
+	// allocate to max length of allowed inputs
+	// and allocate 1 extra for NULL later (for execute)
+	history[index] = calloc(129,sizeof(char**));
+	if(!history[index]){
+		fprintf(stderr, "error: %s\n", strerror(errno));
+	}
+	for(i = 0; i < 128; i++){
+		int string_len = strlen(args[i]);
+		// +1 for null terminator
+		history[index][i] = calloc(string_len+1,sizeof(char));
+		if(!history[index][i]){
+			fprintf(stderr, "error: %s\n", strerror(errno));
+		}
+		strcpy(history[index][i],args[i]);
+	}
+	// fill in the null for later exec
+	history[index][128] = NULL;
+	// update the new index
+	index++;
+	*latest_index = index;
+	return history;	
+}
+
+
+
 
