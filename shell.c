@@ -17,6 +17,7 @@ char** parse_input(char*);
 char* read_input();
 char*** write_history(char***, char**,int*, int*);
 void clean_history(char***,int);
+void change_directory(char**);
 extern int errno;
 
 int isEOF;
@@ -158,7 +159,14 @@ void execute_input(char** args, int* exit_flag){
 			// if exit, returns 0
 			if(strcmp(args[0],special_command[0]) == 0)
 				*exit_flag = 1;
-			
+			// if cd, then call the function for it
+			else if(strcmp(args[0],special_command[1]) == 0)
+				change_directory(args);
+			// if history, then call the function for it
+			else if(strcmp(args[0],special_command[2]) == 0){
+				
+			}
+				
 		}
 	}
 	else{
@@ -216,6 +224,18 @@ void clean_history(char*** history,int length){
 		free(history[i]);
 	}
 	free(history);
+	return;
+}
+
+/* Change directory command*/
+void change_directory(char** args){
+	if(args[1] == NULL){
+		fprintf(stderr, "error: %s\n", "usage: cd [dir]!");
+		return;
+	}
+	if(chdir(args[1]) != 0){
+		fprintf(stderr, "error: %s\n", strerror(errno));
+	}
 	return;
 }
 
