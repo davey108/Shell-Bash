@@ -5,19 +5,19 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
-
+#define MAX_HISTORY_SIZE 100
 #define MAX_SIZE 50
-#define HISTORY_SIZE 1024
 /*
  * CS 475 HW1: Shell
  * http://www.jonbell.net/gmu-cs-475-spring-2018/homework-1/
  */
-void execute_input(char**,int*);
+void execute_input(char**,int*,char**);
 char** parse_input(char*);
 char* read_input();
-char*** write_history(char***, char**,int*, int*);
-void clean_history(char***,int);
+void write_history(char**, char*,int*);
+void clean_history(char**,int);
 void change_directory(char**);
+void print_history(char**);
 extern int errno;
 
 int isEOF;
@@ -40,13 +40,8 @@ int main(int argc, char **argv) {
 	 *                                    v -> each element points to its own arr_char
 	 * char_array:    [ each | element | is | a | char|...]*/
 	 
-	/* Initialize history length to its max size which might change*/
-	int hist_length = HISTORY_SIZE;
-	char*** history_data = calloc(hist_length, sizeof(char**));
-	if(!history_data){
-		fprintf(stderr, "error: %s\n", strerror(errno));
-	}
-	
+	char* history_data[MAX_HISTORY_SIZE];
+	memset(history_data,0,MAX_HISTORY_SIZE);
 	int hist_index = 0;
 	/* store the user input */
 	char* input;
@@ -57,18 +52,20 @@ int main(int argc, char **argv) {
 		printf("475$");
 		fflush(stdout);
 		input = read_input();
+		fflush(stdout);
 		// if an EOF is read from input, break out for clean up
 		if(isEOF){
 			break;
 		}
-		parsed_args = parse_input(input);
-		history_data = write_history(history_data,parsed_args,&hist_index,&hist_length);
-		execute_input(parsed_args,&exit);
+		write_history(history_data,input,&hist_index);
+		parsed_args = parse_input(input);		
+		execute_input(parsed_args,&exit,history_data);
+		
 		// clean up after finish w/ each input (space for next one)
 		free(input);
 		free(parsed_args);
 	}
-    clean_history(history_data,hist_index);	
+    clean_history(history_data,hist_index);
 }
 
 char* read_input(){
@@ -76,44 +73,48 @@ char* read_input(){
 	char* user_input = calloc(buffer_size, sizeof(char));	
 	if(!user_input){
 		fprintf(stderr, "error: %s\n", strerror(errno));
+		exit(1);
 	}		
 	int index = 0;
-	char c;
-	do{
-		c = getchar();
-		// if EOF (ctrl + d) detected, return buffer for clean up
+	char c = getchar();
+	while(c != '\n'){
 		if(c == EOF){
 			isEOF = 1;
 			return user_input;
 		}
-		// if exceed caps, increase limit
 		if(index > buffer_size-1){
 			buffer_size *= 2;
 			user_input = realloc(user_input,buffer_size);	
 			if(!user_input){
 				fprintf(stderr, "error: %s\n", strerror(errno));
+				exit(1);
 			}
 		}
 		user_input[index++] = c;
-	}while(c != '\n');
+		c = getchar();
+	}
 	// null terminate the string
 	user_input[index] = '\0';
 	return user_input;	
 }
 
-char** parse_input(char* input){
-	// max number of arguments allow + command (127 + 1 + 1 (for NULL) = 129)
-	int max_len = 129;
+char** parse_input(char* input){				
+	// max number of arguments allow + command (128 + 1 + 1 (for NULL) = 130)
+	int max_len = 130;
 	int index = 0;
 	char** parsed = calloc(max_len, sizeof(char*));
 	if(!parsed){
 		fprintf(stderr, "error: %s\n", strerror(errno));
+		exit(1);
 	}
-	char* token = strtok(input," ");	
+	char* token = strtok(input," ");
 	while(token != NULL){
 		// any attempt to store would be exceeding the limits (128)
-		if(index == max_len-2)
-			fprintf(stderr, "error: %s\n", "Too many arguments!");
+		if(index == max_len-2){
+			fprintf(stderr, "error: %s\n", "too many arguments");
+			free(parsed);
+			return parsed;
+		}
 		// store the token
 		parsed[index++] = token;
 		token = strtok(NULL," ");		
@@ -124,106 +125,134 @@ char** parse_input(char* input){
 }
 /* Pseudocode:
  * parse first argument;
+ * if(first argument == exit or cd or history){
+	 call appropriate function
+     return;
+ }
  * int pid;
  * pid = fork()
- * if(pid > 0)
+ * if(pid < 0)
  *	 print error message
  * else if (pid == child){
- * 	 if(first argument != exit and cd and history)
- *		call execvp on first arg and rest of arg
- *	 else{
- *		scan first arg
- *		call appropriate function on first arg
- *	 }
+ *	 call execvp on first arg and rest of arg
  *  else // implies that pid is parent
  *		wait(&status) // wait for child to finish
  */ 
 	 
-void execute_input(char** args, int* exit_flag){
+void execute_input(char** args, int* exit_flag, char** history){
+	if(args[0] == NULL)
+		return;
 	int status;
 	char* special_command[3];
 	// list of special command
 	special_command[0] = "exit";
 	special_command[1] = "cd";
-	special_command[2] = "history";
+	special_command[2] = "history";	
+	// if exit
+	if(strcmp(args[0],special_command[0]) == 0){
+		*exit_flag = 1;
+		return;
+	}
+	// change directory
+	else if(strcmp(args[0],special_command[1]) == 0){
+		change_directory(args);
+		return;
+	}
+	// history
+	else if(strcmp(args[0],special_command[2]) == 0){
+		// only history
+		if(args[1] == NULL){
+			print_history(history);
+		}
+		// clear
+		else if(strcmp(args[1], "-c") == 0){
+			clean_history(history,100);
+		}
+		//else if(strcmp(args[1],
+	}
+		
 	int pid = fork();
-	if(pid > 0){
+	if(pid < 0){
 		fprintf(stderr, "error: %s\n", strerror(errno));
 	}
 	else if (pid == 0){
 		// do non-built in
-		if(strcmp(args[0],special_command[0])!= 0 && strcmp(args[0],special_command[1])!= 0 && strcmp(args[0],special_command[2])!= 0)
-			execvp(args[0],args);
-		// do built in (exit, cd, history)
-		else{
-			// if exit, returns 0
-			if(strcmp(args[0],special_command[0]) == 0)
-				*exit_flag = 1;
-			// if cd, then call the function for it
-			else if(strcmp(args[0],special_command[1]) == 0)
-				change_directory(args);
-			// if history, then call the function for it
-			else if(strcmp(args[0],special_command[2]) == 0){
-				
-			}
-				
+		if(execvp(args[0],args) < 0){
+			fprintf(stderr, "error: %s\n", strerror(errno));
+			exit(1);
 		}
-	}
+	}	
 	else{
 		wait(&status);
-	}	
-}
-/* Write to history and return the location where history array points to in memory*/
-char*** write_history(char*** hist, char** args,int* latest_index, int* history_length){
-	char*** history = hist;
-	int index = *latest_index;
-	int hist_len = *history_length;
-	// if the index is exceeding bound, expand the array
-	if(*latest_index == *history_length){
-		// increase size cap for length
-		*history_length = hist_len*2;
-		history = realloc(history,*history_length);
 	}
+	return;
+}
+/* Write to history and return the location where history array points to in memory
+ * if(command was blank line)
+	 return;
+ * if(command was history){
+	 check the second arg
+	 if(second arg is a number between 0-99){
+		 write to history from index 2 to end
+	 }
+ }
+ * if (index that we are trying to write to equals to or exceed 100 cap){
+	 free the 0th index of history
+	 for(i = 0; i < 99; i++)
+		 history[i] = history[i+1];
+	 reset index to last index
+   }
+   else{
+	calloc the history index that we are writing to
+   }
+   write to that index
+   index ++
+   return;*/
+void write_history(char** hist, char* args,int* latest_index){
+	// if a newline is entered
+	if(args == NULL)
+		return;
+	// if the command was history, do not write
+	if(strcmp(args,"") == 0)
+		return;
+	int index = *latest_index;
 	int i;
-	// allocate to max length of allowed inputs
-	// and allocate 1 extra for NULL later (for execute)
-	history[index] = calloc(129,sizeof(char**));
-	if(!history[index]){
+	// if we are exceeding cap, then shift everything up by 1
+	if(index == MAX_HISTORY_SIZE){
+		clean_history(hist,1);
+		for(i = 0; i < MAX_HISTORY_SIZE-1; i++)
+			hist[i] = hist[i+1];
+		index = MAX_HISTORY_SIZE-1;
+	}
+	// write to the index
+	int string_len = strlen(args);
+	// +1 for null terminator
+	hist[i] = calloc(string_len+1,sizeof(char));
+	if(!hist[i]){
 		fprintf(stderr, "error: %s\n", strerror(errno));
 	}
-	for(i = 0; i < 128; i++){
-		int string_len = strlen(args[i]);
-		// +1 for null terminator
-		history[index][i] = calloc(string_len+1,sizeof(char));
-		if(!history[index][i]){
-			fprintf(stderr, "error: %s\n", strerror(errno));
-		}
-		strcpy(history[index][i],args[i]);
-	}
-	// fill in the null for later exec
-	history[index][128] = NULL;
+	strcpy(hist[i],args);
+	hist[i][string_len] = '\0';
 	// update the new index
 	index++;
 	*latest_index = index;
-	return history;	
+	return;	
 }
 
-/* Free up the history array
+/* Free up the string in the history array
  * for every array of string in history
  *    for every string in array of string
           free(string)
 	  free(array of string)
  * return
  */
-void clean_history(char*** history,int length){
-	int i,j;
-	int string_array_len = 128;
+void clean_history(char** history,int length){
+	int i;
 	for(i = 0; i < length; i++){
-		for(j = 0; j < string_array_len; j++)
-			free(history[i][j]);
+		if(history[i] == NULL)
+			break;
 		free(history[i]);
 	}
-	free(history);
 	return;
 }
 
@@ -238,6 +267,75 @@ void change_directory(char** args){
 	}
 	return;
 }
+
+/* Execute any command relates to history
+ * if(args[1] is empty)
+	 print history
+   else if(args[1] is clear)
+	 free(history)
+   else if(args[1] is a number)
+	   check if the number is between 0 and 100 (exclusive)
+		if the number is between 0 and 100 (exclusive){
+			write to history
+			call to execute with the args
+		}
+		else{
+			do nothing
+		}
+ */		
+void print_history(char** history){
+	char ** hist_mover = history;
+	int i = 0;
+	while(hist_mover[i]){
+		printf("%d ",i);
+		printf("%s\n",hist_mover[i]);
+		i++;
+	}			
+}
+/* if args[0] is history command{
+	if(arg[1] is string 0)
+		return 0;
+	else
+		t = (int)arg[1];
+		if(t is between 1 and 9){
+			if(arg[2] == NULL)
+				return t;
+		}
+		else{
+			p = (int) arg[2]
+			if(p is between 0 and 9)
+				return t*10 + p;
+		}
+		
+	}
+ * }
+*/
+
+int check_history_number(char** args){
+	int t,p;
+	if(strcmp(args[0],"history") == 0){
+		if(args[1][0] == '0'){
+			return 0;
+		}
+		else{
+			t = (int)args[1][0];
+			if(t >= 1 && t <= 9){
+				if(args[2] == NULL)
+					return t;
+			}
+			else{
+				p = (int)args[1][1];
+				if(p >= 0 && p <= 9)
+					return t*10+p;
+			}
+		}
+	}
+	return -1;
+}
+
+
+
+
 
 
 
