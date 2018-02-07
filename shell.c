@@ -8,16 +8,18 @@
 #define MAX_HISTORY_SIZE 100
 #define MAX_SIZE 50
 /*
+ * Author: Khang Chau Vo
  * CS 475 HW1: Shell
  * http://www.jonbell.net/gmu-cs-475-spring-2018/homework-1/
  */
-void execute_input(char**,int*,char**);
+void execute_input(char**,int*,char**,int*);
 char** parse_input(char*);
 char* read_input();
-void write_history(char**, char*,int*);
+void write_history(char**, char**,int*);
 void clean_history(char**,int);
 void change_directory(char**);
-void print_history(char**);
+void print_history(char**,int);
+int check_history_number(char**);
 extern int errno;
 
 int isEOF;
@@ -57,17 +59,16 @@ int main(int argc, char **argv) {
 		if(isEOF){
 			break;
 		}
-		write_history(history_data,input,&hist_index);
+		write_history(history_data,&input,&hist_index);
 		parsed_args = parse_input(input);		
-		execute_input(parsed_args,&exit,history_data);
-		
-		// clean up after finish w/ each input (space for next one)
+		execute_input(parsed_args,&exit,history_data,&hist_index);
+		// clean up after finish
 		free(input);
 		free(parsed_args);
 	}
     clean_history(history_data,hist_index);
 }
-
+/* Read the user input and resize the array as needed then return the input*/
 char* read_input(){
 	int buffer_size = MAX_SIZE;
 	char* user_input = calloc(buffer_size, sizeof(char));	
@@ -98,7 +99,15 @@ char* read_input(){
 	return user_input;	
 }
 
-char** parse_input(char* input){				
+/* parse the user input and return the parsed array */
+char** parse_input(char* input){
+	int input_length = strlen(input);
+	char* user_input = calloc(input_length+1,sizeof(char));
+	if(!user_input){
+		fprintf(stderr, "error: %s\n", strerror(errno));
+		exit(1);
+	}
+	strcpy(user_input,input);
 	// max number of arguments allow + command (128 + 1 + 1 (for NULL) = 130)
 	int max_len = 130;
 	int index = 0;
@@ -107,20 +116,28 @@ char** parse_input(char* input){
 		fprintf(stderr, "error: %s\n", strerror(errno));
 		exit(1);
 	}
-	char* token = strtok(input," ");
+	char* token = strtok(user_input," ");
 	while(token != NULL){
 		// any attempt to store would be exceeding the limits (128)
 		if(index == max_len-2){
 			fprintf(stderr, "error: %s\n", "too many arguments");
-			free(parsed);
+			// reinitialize 
+			parsed = calloc(max_len,sizeof(char*));
+			if(!parsed){
+				fprintf(stderr, "error: %s\n", strerror(errno));
+				exit(1);
+			}
 			return parsed;
 		}
-		// store the token
-		parsed[index++] = token;
+		int token_length = strlen(token);
+		parsed[index] = calloc(token_length+1,sizeof(char));
+		strcpy(parsed[index],token);
+		index++;
 		token = strtok(NULL," ");		
 	}
 	// fill in that null for exec
 	parsed[index] = NULL;
+	free(user_input);
 	return parsed;	
 }
 /* Pseudocode:
@@ -139,7 +156,7 @@ char** parse_input(char* input){
  *		wait(&status) // wait for child to finish
  */ 
 	 
-void execute_input(char** args, int* exit_flag, char** history){
+void execute_input(char** args, int* exit_flag, char** history, int* hist_index){
 	if(args[0] == NULL)
 		return;
 	int status;
@@ -162,13 +179,24 @@ void execute_input(char** args, int* exit_flag, char** history){
 	else if(strcmp(args[0],special_command[2]) == 0){
 		// only history
 		if(args[1] == NULL){
-			print_history(history);
+			print_history(history,*hist_index);
+			return;
 		}
 		// clear
 		else if(strcmp(args[1], "-c") == 0){
 			clean_history(history,100);
+			*hist_index = 0;
+			return;
 		}
-		//else if(strcmp(args[1],
+		else{
+			int result = check_history_number(args);
+			if(result != -1){
+				char ** history_parsed_args = parse_input(history[result]);
+				write_history(history,&history[result],hist_index);
+				execute_input(history_parsed_args,exit_flag,history,hist_index);
+				return;
+			}
+		}
 	}
 		
 	int pid = fork();
@@ -208,12 +236,22 @@ void execute_input(char** args, int* exit_flag, char** history){
    write to that index
    index ++
    return;*/
-void write_history(char** hist, char* args,int* latest_index){
+void write_history(char** hist, char** args,int* latest_index){
+	int temp_len = strlen(*args);
+	char* temp = malloc(temp_len+1);
+	if(!temp)
+		fprintf(stderr, "error: %s\n", strerror(errno));
+	strcpy(temp,*args);
 	// if a newline is entered
-	if(args == NULL)
+	if(*args == NULL)
 		return;
 	// if the command was history, do not write
-	if(strcmp(args,"") == 0)
+	if(strcmp(*args,"") == 0)
+		return;
+	if(strcmp(*args,"history") == 0)
+		return;
+	// if contains history
+	if(strstr(*args,"history"))
 		return;
 	int index = *latest_index;
 	int i;
@@ -224,16 +262,18 @@ void write_history(char** hist, char* args,int* latest_index){
 			hist[i] = hist[i+1];
 		index = MAX_HISTORY_SIZE-1;
 	}
-	// write to the index
-	int string_len = strlen(args);
-	// +1 for null terminator
-	hist[i] = calloc(string_len+1,sizeof(char));
-	if(!hist[i]){
+	/* might scrap*/
+	int len = strlen(*args);
+	hist[index] = calloc(len+1,sizeof(char));
+	if(!hist[index]){
 		fprintf(stderr, "error: %s\n", strerror(errno));
 	}
-	strcpy(hist[i],args);
-	hist[i][string_len] = '\0';
+	strcpy(hist[index],temp);
+	hist[index][len] = '\0';
+	// write to the index
+	//hist[index] = *args;
 	// update the new index
+	free(temp);
 	index++;
 	*latest_index = index;
 	return;	
@@ -283,14 +323,13 @@ void change_directory(char** args){
 			do nothing
 		}
  */		
-void print_history(char** history){
+void print_history(char** history,int length){
 	char ** hist_mover = history;
 	int i = 0;
-	while(hist_mover[i]){
-		printf("%d ",i);
-		printf("%s\n",hist_mover[i]);
-		i++;
-	}			
+	for(i = 0; i < length; i++){
+		printf("%d: %s\n",i,hist_mover[i]);
+	}
+		
 }
 /* if args[0] is history command{
 	if(arg[1] is string 0)
@@ -310,7 +349,6 @@ void print_history(char** history){
 	}
  * }
 */
-
 int check_history_number(char** args){
 	int t,p;
 	if(strcmp(args[0],"history") == 0){
@@ -318,16 +356,15 @@ int check_history_number(char** args){
 			return 0;
 		}
 		else{
-			t = (int)args[1][0];
+			t = (int)args[1][0] - 48;
 			if(t >= 1 && t <= 9){
-				if(args[2] == NULL)
-					return t;
-			}
-			else{
-				p = (int)args[1][1];
+				p = (int)args[1][1]-48;
 				if(p >= 0 && p <= 9)
 					return t*10+p;
+				else
+					return t;
 			}
+			
 		}
 	}
 	return -1;
