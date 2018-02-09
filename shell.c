@@ -20,6 +20,7 @@ void clean_history(char**,int);
 void change_directory(char**);
 void print_history(char**,int);
 int check_history_number(char**);
+void free_parse(char**);
 extern int errno;
 
 int isEOF;
@@ -121,6 +122,7 @@ char** parse_input(char* input){
 		// any attempt to store would be exceeding the limits (128)
 		if(index == max_len-2){
 			fprintf(stderr, "error: %s\n", "too many arguments");
+			free_parse(parsed);
 			// reinitialize 
 			parsed = calloc(max_len,sizeof(char*));
 			if(!parsed){
@@ -133,7 +135,7 @@ char** parse_input(char* input){
 		parsed[index] = calloc(token_length+1,sizeof(char));
 		strcpy(parsed[index],token);
 		index++;
-		token = strtok(NULL," ");		
+		token = strtok(NULL," ");	
 	}
 	// fill in that null for exec
 	parsed[index] = NULL;
@@ -370,7 +372,14 @@ int check_history_number(char** args){
 	return -1;
 }
 
-
+void free_parse(char** parsed_args){
+	while(*parsed_args){
+		parsed_args++;
+		free(*parsed_args);
+	}
+	free(parsed_args);
+		
+}
 
 
 
